@@ -4,6 +4,8 @@ import {
   DifficultyLevel,
   getLLMChessMove,
   parseChessMove,
+  getLLMChessAnalysis,
+  LLMChessAnalysis,
 } from "@/lib/llm/chess-llm";
 
 interface GameStore {
@@ -21,6 +23,10 @@ interface GameStore {
   isLoading: boolean;
   error: string | null;
 
+  // Analysis state
+  analysis: LLMChessAnalysis | null;
+  isAnalysisLoading: boolean;
+
   // Actions
   initGame: (
     playerColor?: "w" | "b",
@@ -35,6 +41,7 @@ interface GameStore {
   undoMove: () => MoveResult;
   resetGame: () => void;
   requestLLMMove: () => Promise<void>;
+  requestAnalysis: (query?: string) => Promise<void>;
   setDifficultyLevel: (level: DifficultyLevel) => void;
   setPlayerColor: (color: "w" | "b") => void;
 }
@@ -53,6 +60,10 @@ export const useGameStore = create<GameStore>((set, get) => ({
   validMoves: [],
   isLoading: false,
   error: null,
+
+  // Analysis state
+  analysis: null,
+  isAnalysisLoading: false,
 
   // Actions
   initGame: (playerColor = "w", difficultyLevel = "intermediate") => {
@@ -225,6 +236,25 @@ export const useGameStore = create<GameStore>((set, get) => ({
         error: `AI move error: ${(error as Error).message}`,
         isLoading: false,
         isPlayerTurn: true, // Let the player try again
+      });
+    }
+  },
+
+  requestAnalysis: async (query?: string) => {
+    const { game, gameState } = get();
+
+    if (!game || !gameState) return;
+
+    set({ isAnalysisLoading: true });
+
+    try {
+      // Get analysis from LLM
+      const analysis = await getLLMChessAnalysis(gameState, query);
+      set({ analysis });
+    } catch (error) {
+      set({
+        error: `Analysis error: ${(error as Error).message}`,
+        isAnalysisLoading: false,
       });
     }
   },

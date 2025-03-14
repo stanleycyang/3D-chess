@@ -1,7 +1,14 @@
+// This file is being removed as part of V1 cleanup
+// We'll reimplement user authentication in a future version
+
 import { create } from "zustand";
-import { supabase } from "@/lib/db/supabase";
-import { getUserCredits, updateUserCredits } from "@/lib/db/supabase";
-import { CREDIT_PACKAGES } from "@/lib/stripe/stripe-client";
+
+// Dummy credit packages for V1
+const CREDIT_PACKAGES = [
+  { id: "basic", name: "Basic", credits: 10, price: 5 },
+  { id: "standard", name: "Standard", credits: 25, price: 10 },
+  { id: "premium", name: "Premium", credits: 60, price: 20 },
+];
 
 interface UserState {
   // User state
@@ -24,6 +31,7 @@ interface UserState {
   purchaseCredits: (packageId: string) => Promise<{ url: string } | null>;
 }
 
+// Dummy implementation for V1
 export const useUserStore = create<UserState>((set, get) => ({
   // User state
   user: null,
@@ -31,231 +39,100 @@ export const useUserStore = create<UserState>((set, get) => ({
   isLoading: false,
   error: null,
 
-  // Actions
-  login: async (email: string, password: string) => {
+  // Actions - dummy implementations
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  login: async (email: string, _password: string) => {
     set({ isLoading: true, error: null });
-
-    try {
-      const { data, error } = await supabase.auth.signInWithPassword({
-        email,
-        password,
-      });
-
-      if (error) {
-        throw error;
-      }
-
-      if (data.user) {
-        set({
-          user: {
-            id: data.user.id,
-            email: data.user.email!,
-            name: data.user.user_metadata.name,
-          },
-          isLoading: false,
-        });
-
-        // Get user credits
-        await get().getCredits();
-      }
-    } catch (error) {
+    // Dummy implementation
+    setTimeout(() => {
       set({
-        error: (error as Error).message,
+        user: {
+          id: "dummy-user-id",
+          email: email,
+          name: "Guest User",
+        },
+        credits: 10,
         isLoading: false,
       });
-    }
+    }, 500);
   },
 
-  signup: async (email: string, password: string, name: string) => {
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  signup: async (email: string, _password: string, name: string) => {
     set({ isLoading: true, error: null });
-
-    try {
-      const { data, error } = await supabase.auth.signUp({
-        email,
-        password,
-        options: {
-          data: {
-            name,
-          },
-        },
-      });
-
-      if (error) {
-        throw error;
-      }
-
-      if (data.user) {
-        set({
-          user: {
-            id: data.user.id,
-            email: data.user.email!,
-            name: data.user.user_metadata.name,
-          },
-          isLoading: false,
-        });
-
-        // Get user credits (should be initialized with 10 free credits)
-        await get().getCredits();
-      }
-    } catch (error) {
+    // Dummy implementation
+    setTimeout(() => {
       set({
-        error: (error as Error).message,
+        user: {
+          id: "dummy-user-id",
+          email: email,
+          name: name,
+        },
+        credits: 10,
         isLoading: false,
       });
-    }
+    }, 500);
   },
 
   logout: async () => {
     set({ isLoading: true, error: null });
-
-    try {
-      const { error } = await supabase.auth.signOut();
-
-      if (error) {
-        throw error;
-      }
-
+    // Dummy implementation
+    setTimeout(() => {
       set({
         user: null,
         credits: 0,
         isLoading: false,
       });
-    } catch (error) {
-      set({
-        error: (error as Error).message,
-        isLoading: false,
-      });
-    }
+    }, 500);
   },
 
   checkSession: async () => {
     set({ isLoading: true, error: null });
-
-    try {
-      const { data, error } = await supabase.auth.getSession();
-
-      if (error) {
-        throw error;
-      }
-
-      if (data.session?.user) {
-        const user = data.session.user;
-
-        set({
-          user: {
-            id: user.id,
-            email: user.email!,
-            name: user.user_metadata.name,
-          },
-          isLoading: false,
-        });
-
-        // Get user credits
-        await get().getCredits();
-      } else {
-        set({
-          user: null,
-          credits: 0,
-          isLoading: false,
-        });
-      }
-    } catch (error) {
+    // Dummy implementation
+    setTimeout(() => {
       set({
-        error: (error as Error).message,
+        user: null,
+        credits: 0,
         isLoading: false,
       });
-    }
+    }, 500);
   },
 
   getCredits: async () => {
     const { user } = get();
-
-    if (!user) {
-      return 0;
-    }
-
-    try {
-      const credits = await getUserCredits(user.id);
-      set({ credits });
-      return credits;
-    } catch (error) {
-      console.error("Error getting credits:", error);
-      return 0;
-    }
+    if (!user) return 0;
+    // Dummy implementation
+    return get().credits;
   },
 
-  useCredits: async (amount: number, description: string) => {
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  useCredits: async (amount: number, _description: string) => {
     const { user, credits } = get();
-
     if (!user) {
       set({ error: "You must be logged in to use credits" });
       return false;
     }
-
     if (credits < amount) {
       set({ error: "Not enough credits" });
       return false;
     }
-
-    try {
-      const newBalance = await updateUserCredits(
-        user.id,
-        -amount,
-        "use",
-        description
-      );
-      set({ credits: newBalance });
-      return true;
-    } catch (error) {
-      set({ error: (error as Error).message });
-      return false;
-    }
+    // Dummy implementation
+    set({ credits: credits - amount });
+    return true;
   },
 
-  purchaseCredits: async (packageId: string) => {
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  purchaseCredits: async (_packageId: string) => {
     const { user } = get();
-
     if (!user) {
       set({ error: "You must be logged in to purchase credits" });
       return null;
     }
 
-    const creditPackage = CREDIT_PACKAGES.find((pkg) => pkg.id === packageId);
+    // Log available packages for reference
+    console.log("Available packages:", CREDIT_PACKAGES);
 
-    if (!creditPackage) {
-      set({ error: "Invalid credit package" });
-      return null;
-    }
-
-    set({ isLoading: true, error: null });
-
-    try {
-      // Call API to create Stripe checkout session
-      const response = await fetch("/api/stripe/create-checkout", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          packageId,
-        }),
-      });
-
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || "Failed to create checkout session");
-      }
-
-      const data = await response.json();
-      set({ isLoading: false });
-
-      return { url: data.url };
-    } catch (error) {
-      set({
-        error: (error as Error).message,
-        isLoading: false,
-      });
-      return null;
-    }
+    // Dummy implementation
+    return { url: "#dummy-checkout-url" };
   },
 }));

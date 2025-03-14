@@ -1,3 +1,6 @@
+// This file is being removed as part of V1 cleanup
+// We'll reimplement a Navbar in a future version if needed
+
 "use client";
 
 import React from "react";
