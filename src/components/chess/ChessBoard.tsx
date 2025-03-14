@@ -242,10 +242,10 @@ const Square = ({
   const squareColor = isSelected
     ? COLORS.selected
     : isValidMove
-    ? COLORS.validMove
-    : isCheck
-    ? COLORS.check
-    : COLORS[color];
+      ? COLORS.validMove
+      : isCheck
+        ? COLORS.check
+        : COLORS[color];
 
   return (
     <mesh position={position} rotation={[-Math.PI / 2, 0, 0]} onClick={onClick}>
@@ -373,6 +373,11 @@ const CameraSetup = () => {
 // Main ChessBoard component
 const ChessBoard = () => {
   const { initGame, gameState } = useGameStore();
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [containerSize, setContainerSize] = useState({
+    width: 0,
+    height: 0,
+  });
 
   useEffect(() => {
     // Initialize the game when the component mounts
@@ -381,27 +386,60 @@ const ChessBoard = () => {
     }
   }, [initGame, gameState]);
 
+  useEffect(() => {
+    // Function to update the container size
+    const updateSize = () => {
+      if (containerRef.current) {
+        const { width, height } = containerRef.current.getBoundingClientRect();
+        setContainerSize({ width, height });
+      }
+    };
+
+    // Update size initially
+    updateSize();
+
+    // Add resize event listener
+    window.addEventListener("resize", updateSize);
+
+    // Create a ResizeObserver to detect container size changes
+    const resizeObserver = new ResizeObserver(updateSize);
+    if (containerRef.current) {
+      resizeObserver.observe(containerRef.current);
+    }
+
+    // Clean up
+    return () => {
+      window.removeEventListener("resize", updateSize);
+      resizeObserver.disconnect();
+    };
+  }, []);
+
   return (
-    <div className='w-full h-[600px]'>
-      <Canvas shadows>
-        <CameraSetup />
-        <ambientLight intensity={0.5} />
-        <directionalLight
-          position={[5, 10, 5]}
-          intensity={1}
-          castShadow
-          shadow-mapSize-width={2048}
-          shadow-mapSize-height={2048}
-        />
-        <Board />
-        <OrbitControls
-          enablePan={true}
-          enableZoom={true}
-          enableRotate={true}
-          minPolarAngle={Math.PI / 6}
-          maxPolarAngle={Math.PI / 2}
-        />
-      </Canvas>
+    <div
+      ref={containerRef}
+      className='w-full h-full min-h-[400px] flex items-center justify-center'
+    >
+      {containerSize.width > 0 && containerSize.height > 0 && (
+        <Canvas shadows style={{ width: "100%", height: "100%" }}>
+          <CameraSetup />
+          <ambientLight intensity={0.5} />
+          <directionalLight
+            position={[5, 10, 5]}
+            intensity={1}
+            castShadow
+            shadow-mapSize-width={2048}
+            shadow-mapSize-height={2048}
+          />
+          <Board />
+          <OrbitControls
+            enablePan={true}
+            enableZoom={true}
+            enableRotate={true}
+            minPolarAngle={Math.PI / 6}
+            maxPolarAngle={Math.PI / 2}
+          />
+        </Canvas>
+      )}
     </div>
   );
 };

@@ -36,6 +36,7 @@ interface GameStore {
   resetGame: () => void;
   requestLLMMove: () => Promise<void>;
   setDifficultyLevel: (level: DifficultyLevel) => void;
+  setPlayerColor: (color: "w" | "b") => void;
 }
 
 export const useGameStore = create<GameStore>((set, get) => ({
@@ -265,5 +266,9 @@ export const useGameStore = create<GameStore>((set, get) => ({
 
   setDifficultyLevel: (level: DifficultyLevel) => {
     set({ difficultyLevel: level });
+  },
+
+  setPlayerColor: (color: "w" | "b") => {
+    set({ playerColor: color });
   },
 }));
