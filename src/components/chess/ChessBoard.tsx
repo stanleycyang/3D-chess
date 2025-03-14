@@ -257,8 +257,7 @@ const Square = ({
 
 // Board component
 const Board = () => {
-  const { gameState, selectedSquare, validMoves, selectSquare } =
-    useGameStore();
+  const { gameState, selectedSquare, selectSquare } = useGameStore();
 
   // Mock board data for development (will be replaced with actual game state)
   const mockBoard: ChessBoard = Array(8)
@@ -269,6 +268,15 @@ const Board = () => {
   const handleSquareClick = (square: string) => {
     selectSquare(square);
   };
+
+  // Get valid moves for the selected square
+  const getValidMovesForSquare = (): string[] => {
+    if (!gameState || !selectedSquare) return [];
+    return gameState.validMoves[selectedSquare] || [];
+  };
+
+  // Current valid moves for the selected piece
+  const currentValidMoves = selectedSquare ? getValidMovesForSquare() : [];
 
   // Render the board
   return (
@@ -284,7 +292,7 @@ const Board = () => {
           const square = `${file}${rank}`;
 
           const isSelected = selectedSquare === square;
-          const isValidMove = validMoves.includes(square);
+          const isValidMove = currentValidMoves.includes(square);
 
           // Check if the king on this square is in check
           const extendedGameState = gameState as ExtendedGameState;

@@ -5,6 +5,117 @@ import ChessBoard from "@/components/chess/ChessBoard";
 import { useGameStore } from "@/store/game-store";
 import { DifficultyLevel } from "@/lib/llm/chess-llm";
 
+// Analysis Modal Component
+const AnalysisModal = ({
+  analysis,
+  isOpen,
+  onClose,
+}: {
+  analysis: {
+    analysis: string;
+    suggestedMove?: string;
+    evaluation?: string;
+  } | null;
+  isOpen: boolean;
+  onClose: () => void;
+}) => {
+  if (!isOpen || !analysis) return null;
+
+  // Function to format chess notation with explanation
+  const formatChessNotation = (text: string) => {
+    // Replace common chess notations with explanations
+    return text.replace(
+      /([KQRBN]?[a-h]?[1-8]?x?[a-h][1-8](?:=[QRBN])?[+#]?)/g,
+      (match) => {
+        let explanation = match;
+
+        // Add explanations for piece symbols
+        if (match.startsWith("K"))
+          explanation = explanation.replace("K", "King ");
+        if (match.startsWith("Q"))
+          explanation = explanation.replace("Q", "Queen ");
+        if (match.startsWith("R"))
+          explanation = explanation.replace("R", "Rook ");
+        if (match.startsWith("B"))
+          explanation = explanation.replace("B", "Bishop ");
+        if (match.startsWith("N"))
+          explanation = explanation.replace("N", "Knight ");
+
+        // Highlight the notation
+        return `<span class="font-bold text-blue-600 dark:text-blue-400" title="${explanation}">${match}</span>`;
+      }
+    );
+  };
+
+  return (
+    <div className='fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4'>
+      <div className='bg-white dark:bg-gray-800 rounded-lg shadow-lg max-w-2xl w-full max-h-[80vh] flex flex-col'>
+        <div className='p-4 border-b flex justify-between items-center'>
+          <h2 className='text-xl font-semibold'>Position Analysis</h2>
+          <button
+            onClick={onClose}
+            className='text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200'
+          >
+            <svg
+              xmlns='http://www.w3.org/2000/svg'
+              className='h-6 w-6'
+              fill='none'
+              viewBox='0 0 24 24'
+              stroke='currentColor'
+            >
+              <path
+                strokeLinecap='round'
+                strokeLinejoin='round'
+                strokeWidth={2}
+                d='M6 18L18 6M6 6l12 12'
+              />
+            </svg>
+          </button>
+        </div>
+
+        <div className='p-4 overflow-y-auto flex-grow'>
+          <div className='prose dark:prose-invert max-w-none'>
+            <h3>Analysis</h3>
+            <div
+              className='whitespace-pre-wrap'
+              dangerouslySetInnerHTML={{
+                __html: formatChessNotation(analysis.analysis),
+              }}
+            />
+
+            {analysis.suggestedMove && (
+              <div className='mt-4'>
+                <h4>Suggested Move</h4>
+                <p
+                  dangerouslySetInnerHTML={{
+                    __html: formatChessNotation(analysis.suggestedMove),
+                  }}
+                />
+              </div>
+            )}
+
+            {analysis.evaluation && (
+              <div className='mt-4'>
+                <h4>Evaluation</h4>
+                <p>{analysis.evaluation}</p>
+              </div>
+            )}
+          </div>
+        </div>
+
+        <div className='p-4 border-t'>
+          <button
+            onClick={onClose}
+            className='px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 w-full'
+          >
+            Close
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 export default function PlayPage() {
   const {
     gameState,
@@ -18,10 +129,14 @@ export default function PlayPage() {
     undoMove,
     requestAnalysis,
     setDifficultyLevel,
+    setPlayerColor,
   } = useGameStore();
 
-  const [showAnalysis, setShowAnalysis] = useState(false);
+  const [showAnalysis, setShowAnalysis] = useState<boolean>(false);
   const [analysisQuery, setAnalysisQuery] = useState("");
+
+  // Check if game is in progress
+  const isGameInProgress = gameState && !gameState.isGameOver;
 
   // Handle difficulty change
   const handleDifficultyChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
@@ -29,7 +144,8 @@ export default function PlayPage() {
   };
 
   // Handle player color change
-  const handleColorChange = () => {
+  const handleColorChange = (color: "w" | "b") => {
+    setPlayerColor(color);
     resetGame();
   };
 
@@ -41,6 +157,11 @@ export default function PlayPage() {
     } catch (error) {
       console.error("Analysis error:", error);
     }
+  };
+
+  // Close analysis modal
+  const handleCloseAnalysis = () => {
+    setShowAnalysis(false);
   };
 
   return (
@@ -59,9 +180,10 @@ export default function PlayPage() {
                   Difficulty
                 </label>
                 <select
-                  className='w-full p-2 border rounded-md bg-white dark:bg-gray-700'
+                  className='w-full p-2 border rounded-md bg-white dark:bg-gray-700 disabled:opacity-70'
                   value={difficultyLevel}
                   onChange={handleDifficultyChange}
+                  disabled={isGameInProgress}
                 >
                   <option value='beginner'>Beginner</option>
                   <option value='intermediate'>Intermediate</option>
@@ -79,10 +201,9 @@ export default function PlayPage() {
                       playerColor === "w"
                         ? "bg-blue-600 text-white"
                         : "bg-gray-200 dark:bg-gray-600"
-                    }`}
-                    onClick={
-                      playerColor === "b" ? handleColorChange : undefined
-                    }
+                    } disabled:opacity-70`}
+                    onClick={() => handleColorChange("w")}
+                    disabled={isGameInProgress}
                   >
                     White
                   </button>
@@ -91,10 +212,9 @@ export default function PlayPage() {
                       playerColor === "b"
                         ? "bg-blue-600 text-white"
                         : "bg-gray-200 dark:bg-gray-600"
-                    }`}
-                    onClick={
-                      playerColor === "w" ? handleColorChange : undefined
-                    }
+                    } disabled:opacity-70`}
+                    onClick={() => handleColorChange("b")}
+                    disabled={isGameInProgress}
                   >
                     Black
                   </button>
@@ -179,26 +299,12 @@ export default function PlayPage() {
           </button>
         </div>
 
-        {showAnalysis && analysis && (
-          <div className='prose dark:prose-invert max-w-none'>
-            <h3>Analysis</h3>
-            <div className='whitespace-pre-wrap'>{analysis.analysis}</div>
-
-            {analysis.suggestedMove && (
-              <div className='mt-4'>
-                <h4>Suggested Move</h4>
-                <p>{analysis.suggestedMove}</p>
-              </div>
-            )}
-
-            {analysis.evaluation && (
-              <div className='mt-4'>
-                <h4>Evaluation</h4>
-                <p>{analysis.evaluation}</p>
-              </div>
-            )}
-          </div>
-        )}
+        {/* Analysis Modal */}
+        <AnalysisModal
+          analysis={analysis}
+          isOpen={showAnalysis}
+          onClose={handleCloseAnalysis}
+        />
       </div>
     </div>
   );

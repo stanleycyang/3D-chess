@@ -278,8 +278,17 @@ async function makeAIMove(
   set: (state: Partial<GameStore>) => void
 ) {
   try {
+    // Clean up the move notation
+    const cleanedMove = moveNotation
+      .trim()
+      .replace(/\.$/, "") // Remove trailing periods
+      .replace(/[!?]+$/, "") // Remove evaluation symbols
+      .replace(/\s.*$/, ""); // Remove anything after the first space
+
+    console.log("Cleaned move notation:", cleanedMove);
+
     // Parse the move using our server-side endpoint
-    const parsedMove = await parseChessMove(gameState, moveNotation);
+    const parsedMove = await parseChessMove(gameState, cleanedMove);
 
     // Make the actual move
     const result = game.makeMove(
@@ -307,6 +316,11 @@ async function makeAIMove(
       return;
     }
 
+    // Try to handle common notation formats
+    if (tryHandleCommonNotations(moveNotation, gameState, game, set)) {
+      return;
+    }
+
     // If we still can't parse the move, try a fallback strategy
     set({
       error: `AI move error: Could not parse move "${moveNotation}". Trying again...`,
@@ -320,9 +334,12 @@ async function makeAIMove(
         const fallbackMove = await getLLMChessMove(
           gameState,
           "intermediate",
-          false
+          true // Include explanation to help with debugging
         );
-        const simplifiedMove = fallbackMove.move.trim();
+
+        // Extract just the move notation from the response
+        const simplifiedMove = extractMoveNotation(fallbackMove.move);
+        console.log("Fallback move notation:", simplifiedMove);
 
         // Try to make the move with the new notation
         await makeAIMove(simplifiedMove, gameState, game, set);
@@ -337,6 +354,121 @@ async function makeAIMove(
       }
     }, 1000);
   }
+}
+
+/**
+ * Helper function to extract just the move notation from a potentially longer text
+ */
+function extractMoveNotation(text: string): string {
+  // Try to find standard algebraic notation patterns
+  const movePattern = /([KQRBN]?[a-h]?[1-8]?x?[a-h][1-8](?:=[QRBN])?[+#]?)/;
+  const match = text.match(movePattern);
+
+  if (match && match[1]) {
+    return match[1];
+  }
+
+  // If no standard pattern found, just return the first word
+  return text.trim().split(/\s+/)[0];
+}
+
+/**
+ * Helper function to try handling common notation formats
+ * Returns true if successful, false otherwise
+ */
+function tryHandleCommonNotations(
+  moveNotation: string,
+  gameState: ChessGameState,
+  game: ChessGame,
+  set: (state: Partial<GameStore>) => void
+): boolean {
+  // Clean the notation
+  const cleanMove = moveNotation
+    .trim()
+    .replace(/\.$/, "")
+    .replace(/[!?]+$/, "");
+
+  // Case 1: Handle castling notation
+  if (cleanMove.match(/^(O-O|O-O-O|0-0|0-0-0)$/i)) {
+    const isKingside = cleanMove.match(/^(O-O|0-0)$/i);
+    const turn = gameState.turn;
+
+    // Set up castling moves based on color and type
+    let from = turn === "w" ? "e1" : "e8";
+    let to = "";
+
+    if (isKingside) {
+      to = turn === "w" ? "g1" : "g8";
+    } else {
+      to = turn === "w" ? "c1" : "c8";
+    }
+
+    // Try to make the castling move
+    const result = game.makeMove(from, to);
+    if (result.success) {
+      set({
+        gameState: result.state!,
+        isLoading: false,
+        isPlayerTurn: true,
+        error: null,
+      });
+      return true;
+    }
+
+    return false;
+  }
+
+  // Case 2: Try all possible moves that match the piece type
+  const pieceMap: Record<string, string> = {
+    K: "k",
+    Q: "q",
+    R: "r",
+    B: "b",
+    N: "n",
+    P: "p",
+  };
+
+  // Extract the piece type from the notation
+  const pieceMatch = cleanMove.match(/^([KQRBNP])/);
+  const pieceType = pieceMatch ? pieceMap[pieceMatch[1]] : "p"; // Default to pawn
+
+  // Extract the destination square
+  const destMatch = cleanMove.match(/([a-h][1-8])(?:=[QRBN])?[+#]?$/);
+  if (destMatch) {
+    const destSquare = destMatch[1];
+
+    // Find all pieces of the correct type and color
+    const validMoves = Object.entries(gameState.validMoves);
+    for (const [from, toSquares] of validMoves) {
+      if (!Array.isArray(toSquares)) continue;
+
+      // Check if this piece matches the type we're looking for
+      const piece = gameState.board
+        .flat()
+        .find(
+          (p) =>
+            p &&
+            p.color === gameState.turn &&
+            from === from &&
+            p.type === pieceType
+        );
+
+      if (piece && toSquares.includes(destSquare)) {
+        const result = game.makeMove(from, destSquare);
+        if (result.success) {
+          set({
+            gameState: result.state!,
+            isLoading: false,
+            isPlayerTurn: true,
+            error: null,
+          });
+          return true;
+        }
+      }
+    }
+  }
+
+  return false;
 }
 
 /**
