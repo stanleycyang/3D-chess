@@ -72,38 +72,32 @@ export const useGameStore = create<GameStore>((set, get) => ({
 
     // If AI plays first (player is black), request AI move
     if (playerColor === "b") {
-      get().requestLLMMove();
+      setTimeout(() => get().requestLLMMove(), 500);
     }
   },
 
   selectSquare: (square: string) => {
     const { gameState, selectedSquare, playerColor, isPlayerTurn } = get();
 
-    // Can only select squares during player's turn
-    if (!isPlayerTurn || !gameState) {
-      return;
-    }
+    // Early returns for invalid states
+    if (!isPlayerTurn || !gameState) return;
+    if (gameState.turn !== playerColor || gameState.isGameOver) return;
 
-    // If it's not the player's turn or the game is over, do nothing
-    if (gameState.turn !== playerColor || gameState.isGameOver) {
-      return;
-    }
-
-    // If a square is already selected
+    // Handle square selection logic
     if (selectedSquare) {
-      // If the same square is clicked again, deselect it
+      // Case 1: Same square clicked again - deselect it
       if (selectedSquare === square) {
         set({ selectedSquare: null, validMoves: [] });
         return;
       }
 
-      // If the clicked square is a valid move, make the move
+      // Case 2: Valid move destination - make the move
       if (gameState.validMoves[selectedSquare]?.includes(square)) {
         get().makeMove(selectedSquare, square);
         return;
       }
 
-      // If the clicked square has a piece of the player's color, select it
+      // Case 3: New piece of player's color - select it
       const pieces = gameState.validMoves;
       if (pieces[square]) {
         set({
@@ -113,12 +107,12 @@ export const useGameStore = create<GameStore>((set, get) => ({
         return;
       }
 
-      // Otherwise, deselect the current square
+      // Case 4: Invalid square - deselect current selection
       set({ selectedSquare: null, validMoves: [] });
       return;
     }
 
-    // If no square is selected and the clicked square has a piece of the player's color, select it
+    // No square selected yet - select if it has a piece of player's color
     const pieces = gameState.validMoves;
     if (pieces[square]) {
       set({
@@ -191,22 +185,17 @@ export const useGameStore = create<GameStore>((set, get) => ({
 
     // Undo both the AI's move and the player's move
     const result1 = game.undoMove(); // Undo AI move
-
-    if (!result1.success) {
-      return result1;
-    }
+    if (!result1.success) return result1;
 
     const result2 = game.undoMove(); // Undo player move
-
-    if (!result2.success) {
-      return result2;
-    }
+    if (!result2.success) return result2;
 
     set({
       gameState: result2.state!,
       selectedSquare: null,
       validMoves: [],
       isPlayerTurn: true,
+      error: null,
     });
 
     return result2;
@@ -219,9 +208,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
   requestLLMMove: async () => {
     const { game, gameState, difficultyLevel } = get();
 
-    if (!game || !gameState) {
-      return;
-    }
+    if (!game || !gameState) return;
 
     set({ isLoading: true, error: null });
 
@@ -229,32 +216,10 @@ export const useGameStore = create<GameStore>((set, get) => ({
       // Get move from LLM
       const llmMove = await getLLMChessMove(gameState, difficultyLevel, false);
       console.log("LLM suggested move:", llmMove.move);
-
-      // Clean up the move string
       const cleanMove = llmMove.move.trim();
 
-      // Parse the move using our server-side endpoint
-      const parsedMove = await parseChessMove(gameState, cleanMove);
-
-      // Make the actual move
-      const result = game.makeMove(
-        parsedMove.from,
-        parsedMove.to,
-        parsedMove.promotion
-      );
-
-      if (!result.success) {
-        throw new Error(
-          `Invalid LLM move: ${parsedMove.from}-${parsedMove.to}`
-        );
-      }
-
-      // Update the game state
-      set({
-        gameState: result.state!,
-        isLoading: false,
-        isPlayerTurn: true,
-      });
+      // Try to make the move
+      await makeAIMove(cleanMove, gameState, game, set);
     } catch (error) {
       set({
         error: `AI move error: ${(error as Error).message}`,
@@ -272,3 +237,119 @@ export const useGameStore = create<GameStore>((set, get) => ({
     set({ playerColor: color });
   },
 }));
+
+/**
+ * Helper function to attempt making an AI move
+ */
+async function makeAIMove(
+  moveNotation: string,
+  gameState: ChessGameState,
+  game: ChessGame,
+  set: (state: Partial<GameStore>) => void
+) {
+  try {
+    // Parse the move using our server-side endpoint
+    const parsedMove = await parseChessMove(gameState, moveNotation);
+
+    // Make the actual move
+    const result = game.makeMove(
+      parsedMove.from,
+      parsedMove.to,
+      parsedMove.promotion
+    );
+
+    if (!result.success) {
+      throw new Error(`Invalid move: ${parsedMove.from}-${parsedMove.to}`);
+    }
+
+    // Update the game state
+    set({
+      gameState: result.state!,
+      isLoading: false,
+      isPlayerTurn: true,
+      error: null,
+    });
+  } catch (parseError) {
+    console.error("Error parsing move:", parseError);
+
+    // Try to handle capture notation
+    if (tryHandleCaptureNotation(moveNotation, gameState, game, set)) {
+      return;
+    }
+
+    // If we still can't parse the move, try a fallback strategy
+    set({
+      error: `AI move error: Could not parse move "${moveNotation}". Trying again...`,
+      isLoading: true,
+    });
+
+    // Wait a moment before retrying
+    setTimeout(async () => {
+      try {
+        // Request a new move with explicit instructions for format
+        const fallbackMove = await getLLMChessMove(
+          gameState,
+          "intermediate",
+          false
+        );
+        const simplifiedMove = fallbackMove.move.trim();
+
+        // Try to make the move with the new notation
+        await makeAIMove(simplifiedMove, gameState, game, set);
+      } catch (fallbackError) {
+        set({
+          error: `AI move error: ${
+            (fallbackError as Error).message
+          }. Please try again or make a different move.`,
+          isLoading: false,
+          isPlayerTurn: true,
+        });
+      }
+    }, 1000);
+  }
+}
+
+/**
+ * Helper function to try handling capture notation (e.g., "Bxf7")
+ * Returns true if successful, false otherwise
+ */
+function tryHandleCaptureNotation(
+  moveNotation: string,
+  gameState: ChessGameState,
+  game: ChessGame,
+  set: (state: Partial<GameStore>) => void
+): boolean {
+  if (!moveNotation.includes("x")) return false;
+
+  const parts = moveNotation.split("x");
+  if (parts.length !== 2) return false;
+
+  // Extract destination square
+  const dest = parts[1].replace(/[+#]$/, "");
+
+  // Try to find a valid capture move to this destination
+  const validMoves = Object.entries(gameState.validMoves);
+  for (const [from, toSquares] of validMoves) {
+    if (!Array.isArray(toSquares)) continue;
+
+    for (const to of toSquares) {
+      if (to === dest) {
+        // Check if this is a valid capture move
+        const testResult = game.makeMove(from, to);
+        if (testResult.success) {
+          // Update the game state
+          set({
+            gameState: testResult.state!,
+            isLoading: false,
+            isPlayerTurn: true,
+            error: null,
+          });
+          return true;
+        }
+        game.undoMove(); // Undo the test move
+      }
+    }
+  }
+
+  return false;
+}

@@ -84,6 +84,14 @@ export async function POST(request: NextRequest) {
     prompt += "For promotion, add '=' followed by the piece (e.g., 'e8=Q'). ";
     prompt += "For check, add '+' (e.g., 'Qh5+'). ";
     prompt += "For checkmate, add '#' (e.g., 'Qh7#'). ";
+
+    // Add instructions for more explicit move formats to help with parsing
+    prompt +=
+      "IMPORTANT: If you're suggesting a knight or bishop move, please be very specific about which piece is moving. ";
+    prompt +=
+      "If there could be ambiguity (like two knights that could move to the same square), include the file or rank of origin (e.g., 'Nge2' or 'N1c3'). ";
+    prompt +=
+      "If possible, provide the move in a format that includes both the source and destination squares (e.g., 'e2-e4' or 'Ng1-f3'). ";
     prompt +=
       "IMPORTANT: Return ONLY the move notation without any additional text or explanation in the 'move' field.";
 
