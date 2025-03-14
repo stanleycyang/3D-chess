@@ -3,8 +3,6 @@ import { ChessGame, ChessGameState, MoveResult } from "@/lib/chess/game";
 import {
   DifficultyLevel,
   getLLMChessMove,
-  getLLMChessAnalysis,
-  LLMChessAnalysis,
   parseChessMove,
 } from "@/lib/llm/chess-llm";
 
@@ -23,10 +21,6 @@ interface GameStore {
   isLoading: boolean;
   error: string | null;
 
-  // Analysis state
-  analysis: LLMChessAnalysis | null;
-  isAnalysisLoading: boolean;
-
   // Actions
   initGame: (
     playerColor?: "w" | "b",
@@ -40,7 +34,6 @@ interface GameStore {
   ) => Promise<MoveResult>;
   undoMove: () => MoveResult;
   resetGame: () => void;
-  requestAnalysis: (query?: string) => Promise<LLMChessAnalysis>;
   requestLLMMove: () => Promise<void>;
   setDifficultyLevel: (level: DifficultyLevel) => void;
 }
@@ -60,10 +53,6 @@ export const useGameStore = create<GameStore>((set, get) => ({
   isLoading: false,
   error: null,
 
-  // Analysis state
-  analysis: null,
-  isAnalysisLoading: false,
-
   // Actions
   initGame: (playerColor = "w", difficultyLevel = "intermediate") => {
     const game = new ChessGame();
@@ -78,7 +67,6 @@ export const useGameStore = create<GameStore>((set, get) => ({
       selectedSquare: null,
       validMoves: [],
       error: null,
-      analysis: null,
     });
 
     // If AI plays first (player is black), request AI move
@@ -225,30 +213,6 @@ export const useGameStore = create<GameStore>((set, get) => ({
 
   resetGame: () => {
     get().initGame(get().playerColor, get().difficultyLevel);
-  },
-
-  requestAnalysis: async (
-    query = "Analyze this position and suggest a good move"
-  ) => {
-    const { gameState } = get();
-
-    if (!gameState) {
-      throw new Error("Game not initialized");
-    }
-
-    set({ isAnalysisLoading: true });
-
-    try {
-      const analysis = await getLLMChessAnalysis(gameState, query);
-      set({ analysis, isAnalysisLoading: false });
-      return analysis;
-    } catch (error) {
-      set({
-        error: (error as Error).message,
-        isAnalysisLoading: false,
-      });
-      throw error;
-    }
   },
 
   requestLLMMove: async () => {

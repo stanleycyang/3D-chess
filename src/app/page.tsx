@@ -4,6 +4,8 @@ import React, { useState } from "react";
 import ChessBoard from "@/components/chess/ChessBoard";
 import { useGameStore } from "@/store/game-store";
 import { DifficultyLevel } from "@/lib/llm/chess-llm";
+import { experimental_useObject as useObject } from "@ai-sdk/react";
+import { chessAnalysisSchema } from "@/lib/chess/analysis-schema";
 
 export default function Home() {
   const {
@@ -12,17 +14,23 @@ export default function Home() {
     difficultyLevel,
     isLoading,
     error,
-    analysis,
-    isAnalysisLoading,
     resetGame,
     undoMove,
-    requestAnalysis,
     setDifficultyLevel,
   } = useGameStore();
 
   const [showAnalysis, setShowAnalysis] = useState(false);
-  const [analysisQuery, setAnalysisQuery] = useState("");
   const [showAuthModal, setShowAuthModal] = useState(false);
+
+  // Use the useObject hook for streaming analysis
+  const {
+    object: analysis,
+    submit: requestAnalysis,
+    isLoading: isAnalysisStreaming,
+  } = useObject({
+    api: "/api/chess/analysis",
+    schema: chessAnalysisSchema,
+  });
 
   // Handle difficulty change
   const handleDifficultyChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
@@ -36,8 +44,10 @@ export default function Home() {
 
   // Handle analysis request
   const handleAnalysisRequest = async () => {
+    if (!gameState) return;
+
     try {
-      await requestAnalysis(analysisQuery || undefined);
+      requestAnalysis({ gameState });
       setShowAnalysis(true);
     } catch (error) {
       console.error("Analysis error:", error);
@@ -46,22 +56,10 @@ export default function Home() {
 
   return (
     <div className='min-h-screen bg-gray-100 dark:bg-gray-900'>
-      <header className='bg-white dark:bg-gray-800 shadow-md p-4'>
-        <div className='container mx-auto flex justify-between items-center'>
-          <h1 className='text-xl font-bold'>3D Chess with LLMs</h1>
-          <button
-            className='px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700'
-            onClick={() => setShowAuthModal(true)}
-          >
-            Sign In
-          </button>
-        </div>
-      </header>
-
-      <main className='container mx-auto px-4 py-8'>
-        <div className='grid grid-cols-1 lg:grid-cols-4 gap-8'>
+      <main className='w-full px-0 py-4'>
+        <div className='grid grid-cols-1 lg:grid-cols-5 gap-4'>
           {/* Left sidebar with game controls */}
-          <div className='lg:col-span-1 space-y-6'>
+          <div className='lg:col-span-1 space-y-4 px-4'>
             <div className='bg-white dark:bg-gray-800 rounded-lg shadow p-4'>
               <h2 className='text-xl font-semibold mb-4'>Game Controls</h2>
 
@@ -160,25 +158,57 @@ export default function Home() {
                 </div>
               )}
             </div>
+          </div>
 
-            {/* Analysis section */}
+          {/* Main chess board */}
+          <div className='lg:col-span-3'>
+            <div className='bg-white dark:bg-gray-800 rounded-lg shadow p-4'>
+              <ChessBoard />
+            </div>
+          </div>
+
+          {/* Right sidebar with analysis */}
+          <div className='lg:col-span-1 space-y-4 px-4'>
             <div className='bg-white dark:bg-gray-800 rounded-lg shadow p-4'>
               <h2 className='text-xl font-semibold mb-4'>Position Analysis</h2>
 
               <div className='space-y-4'>
-                <input
-                  type='text'
-                  className='w-full p-2 border rounded-md bg-white dark:bg-gray-700'
-                  placeholder='Ask about the position...'
-                  value={analysisQuery}
-                  onChange={(e) => setAnalysisQuery(e.target.value)}
-                />
+                <p className='text-sm text-gray-600 dark:text-gray-400'>
+                  Click the button below to get a beginner-friendly analysis of
+                  the current position.
+                </p>
                 <button
-                  className='w-full px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50'
+                  className='w-full px-4 py-3 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50 font-medium'
                   onClick={handleAnalysisRequest}
-                  disabled={isAnalysisLoading || !gameState}
+                  disabled={isAnalysisStreaming || !gameState}
                 >
-                  {isAnalysisLoading ? "Analyzing..." : "Analyze Position"}
+                  {isAnalysisStreaming ? (
+                    <span className='flex items-center justify-center'>
+                      <svg
+                        className='animate-spin -ml-1 mr-3 h-5 w-5 text-white'
+                        xmlns='http://www.w3.org/2000/svg'
+                        fill='none'
+                        viewBox='0 0 24 24'
+                      >
+                        <circle
+                          className='opacity-25'
+                          cx='12'
+                          cy='12'
+                          r='10'
+                          stroke='currentColor'
+                          strokeWidth='4'
+                        ></circle>
+                        <path
+                          className='opacity-75'
+                          fill='currentColor'
+                          d='M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z'
+                        ></path>
+                      </svg>
+                      Analyzing...
+                    </span>
+                  ) : (
+                    "Analyze Position"
+                  )}
                 </button>
               </div>
 
@@ -192,15 +222,17 @@ export default function Home() {
                       <p>{analysis.suggestedMove}</p>
                     </div>
                   )}
+
+                  {analysis.evaluation && (
+                    <div className='mt-4'>
+                      <h4 className='text-lg font-medium'>
+                        Position Evaluation
+                      </h4>
+                      <p>{analysis.evaluation}</p>
+                    </div>
+                  )}
                 </div>
               )}
-            </div>
-          </div>
-
-          {/* Main chess board */}
-          <div className='lg:col-span-3'>
-            <div className='bg-white dark:bg-gray-800 rounded-lg shadow p-4'>
-              <ChessBoard />
             </div>
           </div>
         </div>
