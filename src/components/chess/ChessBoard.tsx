@@ -33,6 +33,84 @@ interface ExtendedGameState {
   turn?: "w" | "b";
 }
 
+// Helper function to get Unicode chess piece symbol
+function getPieceSymbol(type: string, color: "w" | "b"): string {
+  const symbols: Record<"w" | "b", Record<string, string>> = {
+    w: {
+      k: "♔",
+      q: "♕",
+      r: "♖",
+      b: "♗",
+      n: "♘",
+      p: "♙",
+    },
+    b: {
+      k: "♚",
+      q: "♛",
+      r: "♜",
+      b: "♝",
+      n: "♞",
+      p: "♟",
+    },
+  };
+  return symbols[color][type] || "";
+}
+
+// Promotion Dialog Component
+const PromotionDialog = ({
+  isOpen,
+  position,
+  color,
+  onSelect,
+  onCancel,
+}: {
+  isOpen: boolean;
+  position: { x: number; y: number };
+  color: "w" | "b";
+  onSelect: (piece: string) => void;
+  onCancel: () => void;
+}) => {
+  if (!isOpen) return null;
+
+  const pieces = [
+    { type: "q", name: "Queen" },
+    { type: "r", name: "Rook" },
+    { type: "b", name: "Bishop" },
+    { type: "n", name: "Knight" },
+  ];
+
+  return (
+    <div
+      className='fixed z-50 bg-white dark:bg-gray-800 rounded-lg shadow-lg p-2'
+      style={{
+        top: position.y,
+        left: position.x,
+        transform: "translate(-50%, -50%)",
+      }}
+    >
+      <div className='text-center mb-2 font-bold'>Promote to:</div>
+      <div className='grid grid-cols-2 gap-2'>
+        {pieces.map((piece) => (
+          <button
+            key={piece.type}
+            className='p-2 bg-gray-100 dark:bg-gray-700 hover:bg-blue-100 dark:hover:bg-blue-900 rounded flex flex-col items-center'
+            onClick={() => onSelect(piece.type)}
+          >
+            <div className='text-2xl'>{getPieceSymbol(piece.type, color)}</div>
+            <div className='text-xs mt-1'>{piece.name}</div>
+          </button>
+        ))}
+      </div>
+      <button
+        className='w-full mt-2 p-1 bg-gray-200 dark:bg-gray-600 hover:bg-gray-300 dark:hover:bg-gray-500 rounded text-sm'
+        onClick={onCancel}
+      >
+        Cancel
+      </button>
+    </div>
+  );
+};
+
 // Fallback piece component using basic 3D shapes
 const FallbackPiece = ({
   piece,
@@ -237,7 +315,7 @@ const Square = ({
   isSelected: boolean;
   isValidMove: boolean;
   isCheck: boolean;
-  onClick: () => void;
+  onClick: (event: React.MouseEvent) => void;
 }) => {
   const squareColor = isSelected
     ? COLORS.selected
@@ -248,7 +326,19 @@ const Square = ({
         : COLORS[color];
 
   return (
-    <mesh position={position} rotation={[-Math.PI / 2, 0, 0]} onClick={onClick}>
+    <mesh
+      position={position}
+      rotation={[-Math.PI / 2, 0, 0]}
+      onClick={(event) => {
+        // Convert Three.js event to React event
+        const syntheticEvent = {
+          clientX: event.clientX,
+          clientY: event.clientY,
+          // Add other properties as needed
+        } as React.MouseEvent;
+        onClick(syntheticEvent);
+      }}
+    >
       <planeGeometry args={[1, 1]} />
       <meshStandardMaterial color={squareColor} />
     </mesh>
@@ -257,7 +347,18 @@ const Square = ({
 
 // Board component
 const Board = () => {
-  const { gameState, selectedSquare, selectSquare } = useGameStore();
+  const { gameState, selectedSquare, selectSquare, makeMove } = useGameStore();
+  const [promotionState, setPromotionState] = useState<{
+    isOpen: boolean;
+    from: string;
+    to: string;
+    position: { x: number; y: number };
+  }>({
+    isOpen: false,
+    from: "",
+    to: "",
+    position: { x: 0, y: 0 },
+  });
 
   // Mock board data for development (will be replaced with actual game state)
   const mockBoard: ChessBoard = Array(8)
@@ -265,8 +366,75 @@ const Board = () => {
     .map(() => Array(8).fill(null));
 
   // Handle square click
-  const handleSquareClick = (square: string) => {
-    selectSquare(square);
+  const handleSquareClick = (square: string, event: React.MouseEvent) => {
+    if (promotionState.isOpen) return;
+
+    if (
+      selectedSquare &&
+      isPawnPromotionMove(selectedSquare, square, gameState)
+    ) {
+      // Open promotion dialog
+      setPromotionState({
+        isOpen: true,
+        from: selectedSquare,
+        to: square,
+        position: { x: event.clientX, y: event.clientY },
+      });
+    } else {
+      selectSquare(square);
+    }
+  };
+
+  // Handle promotion selection
+  const handlePromotionSelect = (piece: string) => {
+    makeMove(promotionState.from, promotionState.to, piece);
+    setPromotionState({ ...promotionState, isOpen: false });
+  };
+
+  // Handle promotion cancel
+  const handlePromotionCancel = () => {
+    setPromotionState({ ...promotionState, isOpen: false });
+  };
+
+  // Check if a move is a pawn promotion move
+  const isPawnPromotionMove = (
+    from: string,
+    to: string,
+    gameState: ExtendedGameState | null
+  ): boolean => {
+    if (!gameState) return false;
+
+    // Check if the piece is a pawn
+    const fromCoords = algebraicToCoords(from);
+    if (!fromCoords) return false;
+
+    const piece = gameState.board?.[fromCoords.row]?.[fromCoords.col];
+    if (!piece || piece.type !== "p") return false;
+
+    // Check if the destination is on the last rank
+    const toCoords = algebraicToCoords(to);
+    if (!toCoords) return false;
+
+    // For white pawns, check if destination is on the 8th rank (row 0)
+    // For black pawns, check if destination is on the 1st rank (row 7)
+    return (
+      (piece.color === "w" && toCoords.row === 0) ||
+      (piece.color === "b" && toCoords.row === 7)
+    );
+  };
+
+  // Convert algebraic notation to board coordinates
+  const algebraicToCoords = (
+    square: string
+  ): { row: number; col: number } | null => {
+    if (square.length !== 2) return null;
+
+    const file = square.charCodeAt(0) - 97; // 'a' -> 0, 'b' -> 1, etc.
+    const rank = 8 - parseInt(square[1]); // '8' -> 0, '7' -> 1, etc.
+
+    if (file < 0 || file > 7 || rank < 0 || rank > 7) return null;
+
+    return { row: rank, col: file };
   };
 
   // Get valid moves for the selected square
@@ -280,89 +448,100 @@ const Board = () => {
 
   // Render the board
   return (
-    <group>
-      {/* Board squares */}
-      {Array.from({ length: 8 }, (_, row) =>
-        Array.from({ length: 8 }, (_, col) => {
-          const x = col - 3.5;
-          const z = row - 3.5;
-          const color = (row + col) % 2 === 0 ? "white" : "black";
-          const file = String.fromCharCode(97 + col);
-          const rank = 8 - row;
-          const square = `${file}${rank}`;
+    <>
+      <group>
+        {/* Board squares */}
+        {Array.from({ length: 8 }, (_, row) =>
+          Array.from({ length: 8 }, (_, col) => {
+            const x = col - 3.5;
+            const z = row - 3.5;
+            const color = (row + col) % 2 === 0 ? "white" : "black";
+            const file = String.fromCharCode(97 + col);
+            const rank = 8 - row;
+            const square = `${file}${rank}`;
 
-          const isSelected = selectedSquare === square;
-          const isValidMove = currentValidMoves.includes(square);
+            const isSelected = selectedSquare === square;
+            const isValidMove = currentValidMoves.includes(square);
 
-          // Check if the king on this square is in check
-          const extendedGameState = gameState as ExtendedGameState;
-          const board = extendedGameState?.board || mockBoard;
-          const isCheck =
-            extendedGameState?.isCheck &&
-            board[row]?.[col]?.type === "k" &&
-            board[row]?.[col]?.color === extendedGameState.turn;
+            // Check if the king on this square is in check
+            const extendedGameState = gameState as ExtendedGameState;
+            const board = extendedGameState?.board || mockBoard;
+            const isCheck =
+              extendedGameState?.isCheck &&
+              board[row]?.[col]?.type === "k" &&
+              board[row]?.[col]?.color === extendedGameState.turn;
 
-          return (
-            <Square
-              key={`${row}-${col}`}
-              position={[x, 0, z]}
-              color={color}
-              isSelected={isSelected}
-              isValidMove={isValidMove}
-              isCheck={isCheck || false}
-              onClick={() => handleSquareClick(square)}
-            />
-          );
-        })
-      )}
-
-      {/* Rank and file labels */}
-      {Array.from({ length: 8 }, (_, i) => (
-        <React.Fragment key={`labels-${i}`}>
-          {/* File labels (a-h) */}
-          <Text
-            position={[i - 3.5, 0, 4.2]}
-            rotation={[-Math.PI / 2, 0, 0]}
-            fontSize={0.3}
-            color='#000000'
-          >
-            {String.fromCharCode(97 + i)}
-          </Text>
-
-          {/* Rank labels (1-8) */}
-          <Text
-            position={[-4.2, 0, i - 3.5]}
-            rotation={[-Math.PI / 2, 0, 0]}
-            fontSize={0.3}
-            color='#000000'
-          >
-            {8 - i}
-          </Text>
-        </React.Fragment>
-      ))}
-
-      {/* Chess pieces */}
-      {((gameState as ExtendedGameState)?.board || mockBoard).map(
-        (row, rowIndex) =>
-          row.map((piece, colIndex) => {
-            if (piece) {
-              const x = colIndex - 3.5;
-              const z = rowIndex - 3.5;
-              const key = `piece-${rowIndex}-${colIndex}`;
-
-              return (
-                <ChessPiece
-                  key={key}
-                  piece={piece.type}
-                  position={[x, 0.1, z]}
-                  color={piece.color}
-                />
-              );
-            }
-            return null;
+            return (
+              <Square
+                key={`${row}-${col}`}
+                position={[x, 0, z]}
+                color={color}
+                isSelected={isSelected}
+                isValidMove={isValidMove}
+                isCheck={isCheck || false}
+                onClick={(event) => handleSquareClick(square, event)}
+              />
+            );
           })
-      )}
-    </group>
+        )}
+
+        {/* Rank and file labels */}
+        {Array.from({ length: 8 }, (_, i) => (
+          <React.Fragment key={`labels-${i}`}>
+            {/* File labels (a-h) */}
+            <Text
+              position={[i - 3.5, 0, 4.2]}
+              rotation={[-Math.PI / 2, 0, 0]}
+              fontSize={0.3}
+              color='#000000'
+            >
+              {String.fromCharCode(97 + i)}
+            </Text>
+
+            {/* Rank labels (1-8) */}
+            <Text
+              position={[-4.2, 0, i - 3.5]}
+              rotation={[-Math.PI / 2, 0, 0]}
+              fontSize={0.3}
+              color='#000000'
+            >
+              {8 - i}
+            </Text>
+          </React.Fragment>
+        ))}
+
+        {/* Chess pieces */}
+        {((gameState as ExtendedGameState)?.board || mockBoard).map(
+          (row, rowIndex) =>
+            row.map((piece, colIndex) => {
+              if (piece) {
+                const x = colIndex - 3.5;
+                const z = rowIndex - 3.5;
+                const key = `piece-${rowIndex}-${colIndex}`;
+
+                return (
+                  <ChessPiece
+                    key={key}
+                    piece={piece.type}
+                    position={[x, 0.1, z]}
+                    color={piece.color}
+                  />
+                );
+              }
+              return null;
+            })
+        )}
+      </group>
+
+      {/* Promotion Dialog */}
+      <PromotionDialog
+        isOpen={promotionState.isOpen}
+        position={promotionState.position}
+        color={gameState?.turn || "w"}
+        onSelect={handlePromotionSelect}
+        onCancel={handlePromotionCancel}
+      />
+    </>
   );
 };
 

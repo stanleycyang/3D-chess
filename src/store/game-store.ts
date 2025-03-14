@@ -94,6 +94,15 @@ export const useGameStore = create<GameStore>((set, get) => ({
     if (!isPlayerTurn || !gameState) return;
     if (gameState.turn !== playerColor || gameState.isGameOver) return;
 
+    // Handle special case: castling
+    if (
+      selectedSquare &&
+      isKingCastlingMove(selectedSquare, square, gameState)
+    ) {
+      get().makeMove(selectedSquare, square);
+      return;
+    }
+
     // Handle square selection logic
     if (selectedSquare) {
       // Case 1: Same square clicked again - deselect it
@@ -134,10 +143,16 @@ export const useGameStore = create<GameStore>((set, get) => ({
   },
 
   makeMove: async (from: string, to: string, promotion?: string) => {
-    const { game } = get();
+    const { game, gameState } = get();
 
     if (!game) {
       return { success: false, error: "Game not initialized" };
+    }
+
+    // Check if this is a pawn promotion move that needs promotion piece
+    if (gameState && isPawnPromotionMove(from, to, gameState) && !promotion) {
+      // Default to queen if no promotion piece specified
+      promotion = "q";
     }
 
     set({ isLoading: true, error: null });
@@ -278,6 +293,11 @@ async function makeAIMove(
   set: (state: Partial<GameStore>) => void
 ) {
   try {
+    // First, check for special moves like castling
+    if (tryHandleCommonNotations(moveNotation, gameState, game, set)) {
+      return;
+    }
+
     // Clean up the move notation
     const cleanedMove = moveNotation
       .trim()
@@ -313,11 +333,6 @@ async function makeAIMove(
 
     // Try to handle capture notation
     if (tryHandleCaptureNotation(moveNotation, gameState, game, set)) {
-      return;
-    }
-
-    // Try to handle common notation formats
-    if (tryHandleCommonNotations(moveNotation, gameState, game, set)) {
       return;
     }
 
@@ -360,8 +375,9 @@ async function makeAIMove(
  * Helper function to extract just the move notation from a potentially longer text
  */
 function extractMoveNotation(text: string): string {
-  // Try to find standard algebraic notation patterns
-  const movePattern = /([KQRBN]?[a-h]?[1-8]?x?[a-h][1-8](?:=[QRBN])?[+#]?)/;
+  // Try to find standard algebraic notation patterns including castling
+  const movePattern =
+    /([KQRBN]?[a-h]?[1-8]?x?[a-h][1-8](?:=[QRBN])?[+#]?|O-O(?:-O)?|0-0(?:-0)?)/i;
   const match = text.match(movePattern);
 
   if (match && match[1]) {
@@ -394,7 +410,7 @@ function tryHandleCommonNotations(
     const turn = gameState.turn;
 
     // Set up castling moves based on color and type
-    let from = turn === "w" ? "e1" : "e8";
+    const from = turn === "w" ? "e1" : "e8";
     let to = "";
 
     if (isKingside) {
@@ -402,6 +418,8 @@ function tryHandleCommonNotations(
     } else {
       to = turn === "w" ? "c1" : "c8";
     }
+
+    console.log(`Attempting castling: ${from} to ${to}`);
 
     // Try to make the castling move
     const result = game.makeMove(from, to);
@@ -415,10 +433,45 @@ function tryHandleCommonNotations(
       return true;
     }
 
+    console.log("Castling failed:", result.error);
     return false;
   }
 
-  // Case 2: Try all possible moves that match the piece type
+  // Case 2: Handle pawn promotion notation (e.g., "e8=Q")
+  const promotionMatch = cleanMove.match(/([a-h][18])=([QRBN])/i);
+  if (promotionMatch) {
+    const destSquare = promotionMatch[1];
+    const promotionPiece = promotionMatch[2].toLowerCase();
+
+    // Find the pawn that can move to this square
+    const validMoves = Object.entries(gameState.validMoves);
+    for (const [from, toSquares] of validMoves) {
+      if (!Array.isArray(toSquares)) continue;
+
+      // Check if this is a pawn that can move to the promotion square
+      const piece = gameState.board
+        .flat()
+        .find(
+          (p) =>
+            p && p.color === gameState.turn && p.type === "p" && from === from
+        );
+
+      if (piece && toSquares.includes(destSquare)) {
+        const result = game.makeMove(from, destSquare, promotionPiece);
+        if (result.success) {
+          set({
+            gameState: result.state!,
+            isLoading: false,
+            isPlayerTurn: true,
+            error: null,
+          });
+          return true;
+        }
+      }
+    }
+  }
+
+  // Case 3: Try all possible moves that match the piece type
   const pieceMap: Record<string, string> = {
     K: "k",
     Q: "q",
@@ -454,7 +507,14 @@ function tryHandleCommonNotations(
         );
 
       if (piece && toSquares.includes(destSquare)) {
-        const result = game.makeMove(from, destSquare);
+        // Check for promotion
+        let promotion: string | undefined;
+        const promotionMatch = cleanMove.match(/=([QRBN])/i);
+        if (promotionMatch && piece.type === "p") {
+          promotion = promotionMatch[1].toLowerCase();
+        }
+
+        const result = game.makeMove(from, destSquare, promotion);
         if (result.success) {
           set({
             gameState: result.state!,
@@ -463,6 +523,41 @@ function tryHandleCommonNotations(
             error: null,
           });
           return true;
+        }
+      }
+    }
+  }
+
+  // Case 4: Handle en passant captures
+  if (cleanMove.includes("x") && pieceType === "p") {
+    const parts = cleanMove.split("x");
+    if (parts.length === 2) {
+      const destSquare = parts[1].replace(/[+#]$/, "");
+
+      // Find all pawns that can capture
+      const validMoves = Object.entries(gameState.validMoves);
+      for (const [from, toSquares] of validMoves) {
+        if (!Array.isArray(toSquares)) continue;
+
+        // Check if this is a pawn
+        const piece = gameState.board
+          .flat()
+          .find(
+            (p) =>
+              p && p.color === gameState.turn && p.type === "p" && from === from
+          );
+
+        if (piece && toSquares.includes(destSquare)) {
+          const result = game.makeMove(from, destSquare);
+          if (result.success) {
+            set({
+              gameState: result.state!,
+              isLoading: false,
+              isPlayerTurn: true,
+              error: null,
+            });
+            return true;
+          }
         }
       }
     }
@@ -514,4 +609,74 @@ function tryHandleCaptureNotation(
   }
 
   return false;
+}
+
+/**
+ * Helper function to check if a move is a king castling move
+ */
+function isKingCastlingMove(
+  from: string,
+  to: string,
+  gameState: ChessGameState
+): boolean {
+  // Check if the piece is a king
+  const board = gameState.board;
+  const fromCoords = algebraicToCoords(from);
+  if (!fromCoords) return false;
+
+  const piece = board[fromCoords.row][fromCoords.col];
+  if (!piece || piece.type !== "k") return false;
+
+  // Check if it's a castling move (king moves 2 squares horizontally)
+  const toCoords = algebraicToCoords(to);
+  if (!toCoords) return false;
+
+  // Same row, and column difference is 2
+  return (
+    fromCoords.row === toCoords.row &&
+    Math.abs(fromCoords.col - toCoords.col) === 2
+  );
+}
+
+/**
+ * Helper function to convert algebraic notation to board coordinates
+ */
+function algebraicToCoords(
+  square: string
+): { row: number; col: number } | null {
+  if (square.length !== 2) return null;
+
+  const file = square.charCodeAt(0) - 97; // 'a' -> 0, 'b' -> 1, etc.
+  const rank = 8 - parseInt(square[1]); // '8' -> 0, '7' -> 1, etc.
+
+  if (file < 0 || file > 7 || rank < 0 || rank > 7) return null;
+
+  return { row: rank, col: file };
+}
+
+/**
+ * Helper function to check if a move is a pawn promotion move
+ */
+function isPawnPromotionMove(
+  from: string,
+  to: string,
+  gameState: ChessGameState
+): boolean {
+  // Check if the piece is a pawn
+  const fromCoords = algebraicToCoords(from);
+  if (!fromCoords) return false;
+
+  const piece = gameState.board[fromCoords.row][fromCoords.col];
+  if (!piece || piece.type !== "p") return false;
+
+  // Check if the destination is on the last rank
+  const toCoords = algebraicToCoords(to);
+  if (!toCoords) return false;
+
+  // For white pawns, check if destination is on the 8th rank (row 0)
+  // For black pawns, check if destination is on the 1st rank (row 7)
+  return (
+    (piece.color === "w" && toCoords.row === 0) ||
+    (piece.color === "b" && toCoords.row === 7)
+  );
 }
