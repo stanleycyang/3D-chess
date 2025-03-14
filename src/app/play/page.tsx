@@ -187,7 +187,7 @@ export default function PlayPage() {
                   className='w-full p-2 border rounded-md bg-white dark:bg-gray-700 disabled:opacity-70'
                   value={difficultyLevel}
                   onChange={handleDifficultyChange}
-                  disabled={isGameInProgress}
+                  disabled={isGameInProgress ?? false}
                 >
                   <option value='beginner'>Beginner</option>
                   <option value='intermediate'>Intermediate</option>
@@ -207,7 +207,7 @@ export default function PlayPage() {
                         : "bg-gray-200 dark:bg-gray-600"
                     } disabled:opacity-70`}
                     onClick={() => handleColorChange("w")}
-                    disabled={isGameInProgress}
+                    disabled={isGameInProgress ?? false}
                   >
                     White
                   </button>
@@ -218,7 +218,7 @@ export default function PlayPage() {
                         : "bg-gray-200 dark:bg-gray-600"
                     } disabled:opacity-70`}
                     onClick={() => handleColorChange("b")}
-                    disabled={isGameInProgress}
+                    disabled={isGameInProgress ?? false}
                   >
                     Black
                   </button>
