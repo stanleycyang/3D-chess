@@ -6,6 +6,7 @@ interface MoveInfo {
   to: string;
   san: string;
   promotion?: string;
+  piece?: string;
 }
 
 export async function POST(request: NextRequest) {
@@ -28,12 +29,15 @@ export async function POST(request: NextRequest) {
     // Clean up the move notation
     const cleanMove = moveNotation.trim();
 
+    console.log(`Parsing move: "${cleanMove}" for position: ${gameState.fen}`);
+
     // Try to parse the move directly (for moves in the format 'e2e4')
     const moveRegex = /([a-h][1-8])([a-h][1-8])/;
     const moveMatch = cleanMove.match(moveRegex);
 
     if (moveMatch) {
       const [, from, to] = moveMatch;
+      console.log(`Matched direct format: ${from}-${to}`);
       return NextResponse.json({ from, to });
     }
 
@@ -43,6 +47,7 @@ export async function POST(request: NextRequest) {
 
     if (extendedMoveMatch) {
       const [, , from, to] = extendedMoveMatch;
+      console.log(`Matched extended format: ${from}-${to}`);
       return NextResponse.json({ from, to });
     }
 
@@ -57,10 +62,21 @@ export async function POST(request: NextRequest) {
         if (testMove.success && testMove.state) {
           const lastMove = testMove.state.history.slice(-1)[0];
           if (lastMove) {
+            // Find the piece type at the from square
+            const fromCoords = algebraicToCoords(fromSquare);
+            let pieceType = "";
+            if (fromCoords) {
+              const piece = gameState.board[fromCoords.row][fromCoords.col];
+              if (piece) {
+                pieceType = piece.type;
+              }
+            }
+
             allValidMoves.push({
               from: fromSquare,
               to: toSquare,
               san: lastMove.san,
+              piece: pieceType,
             });
           }
         }
@@ -70,6 +86,8 @@ export async function POST(request: NextRequest) {
         }
       });
     });
+
+    console.log(`Generated ${allValidMoves.length} valid moves for matching`);
 
     // Find the move that matches the notation
     const matchingMove = allValidMoves.find((m) => {
@@ -103,12 +121,100 @@ export async function POST(request: NextRequest) {
           (m) => m.san.startsWith(piece) && m.to === dest
         );
 
+        console.log(
+          `Found ${possibleMoves.length} possible moves for ${piece} to ${dest}`
+        );
+
         if (possibleMoves.length === 1) {
           // If there's only one possible move with this piece to this destination, use it
+          console.log(
+            `Selected unique move: ${possibleMoves[0].from}-${possibleMoves[0].to}`
+          );
           return NextResponse.json({
             from: possibleMoves[0].from,
             to: possibleMoves[0].to,
             promotion: possibleMoves[0].promotion,
+          });
+        } else if (possibleMoves.length > 1) {
+          // If there are multiple possibilities, try to disambiguate
+          // First, check if the move notation includes a file or rank disambiguator
+          const disambiguatedMatch = cleanMove.match(
+            /^([NBRQK])([a-h1-8])([a-h][1-8])$/
+          );
+          if (disambiguatedMatch) {
+            const [, , disambiguator] = disambiguatedMatch;
+
+            // Check if disambiguator is a file (a-h) or rank (1-8)
+            const isFile = disambiguator.match(/[a-h]/);
+
+            const filteredMoves = possibleMoves.filter((m) => {
+              if (isFile) {
+                // Filter by file
+                return m.from.startsWith(disambiguator);
+              } else {
+                // Filter by rank
+                return m.from.endsWith(disambiguator);
+              }
+            });
+
+            if (filteredMoves.length === 1) {
+              console.log(
+                `Disambiguated to: ${filteredMoves[0].from}-${filteredMoves[0].to}`
+              );
+              return NextResponse.json({
+                from: filteredMoves[0].from,
+                to: filteredMoves[0].to,
+                promotion: filteredMoves[0].promotion,
+              });
+            }
+          }
+
+          // If still ambiguous, just pick the first one and log a warning
+          console.log(
+            `Warning: Ambiguous move ${cleanMove}, selecting first option: ${possibleMoves[0].from}-${possibleMoves[0].to}`
+          );
+          return NextResponse.json({
+            from: possibleMoves[0].from,
+            to: possibleMoves[0].to,
+            promotion: possibleMoves[0].promotion,
+          });
+        }
+      }
+
+      // Try to handle castling notation
+      if (cleanMove.match(/^(O-O|O-O-O|0-0|0-0-0)$/i)) {
+        const isKingside = cleanMove.match(/^(O-O|0-0)$/i);
+        const turn = gameState.turn;
+
+        // Set up castling moves based on color and type
+        const from = turn === "w" ? "e1" : "e8";
+        const to = isKingside
+          ? turn === "w"
+            ? "g1"
+            : "g8"
+          : turn === "w"
+            ? "c1"
+            : "c8";
+
+        console.log(`Detected castling: ${from}-${to}`);
+        return NextResponse.json({ from, to });
+      }
+
+      // Try to handle pawn moves (e.g., "e4")
+      const pawnMoveMatch = cleanMove.match(/^([a-h][1-8])$/);
+      if (pawnMoveMatch) {
+        const [, dest] = pawnMoveMatch;
+        const possiblePawnMoves = allValidMoves.filter(
+          (m) => m.to === dest && m.piece === "p"
+        );
+
+        if (possiblePawnMoves.length === 1) {
+          console.log(
+            `Matched pawn move: ${possiblePawnMoves[0].from}-${possiblePawnMoves[0].to}`
+          );
+          return NextResponse.json({
+            from: possiblePawnMoves[0].from,
+            to: possiblePawnMoves[0].to,
           });
         }
       }
@@ -123,6 +229,8 @@ export async function POST(request: NextRequest) {
         { status: 400 }
       );
     }
+
+    console.log(`Matched move: ${matchingMove.from}-${matchingMove.to}`);
 
     // Check if this is a promotion move
     let promotion;
@@ -142,4 +250,20 @@ export async function POST(request: NextRequest) {
       { status: 500 }
     );
   }
+}
+
+/**
+ * Convert algebraic notation to board coordinates
+ */
+function algebraicToCoords(
+  square: string
+): { row: number; col: number } | null {
+  if (square.length !== 2) return null;
+
+  const file = square.charCodeAt(0) - 97; // 'a' -> 0, 'b' -> 1, etc.
+  const rank = 8 - parseInt(square[1]); // '8' -> 0, '7' -> 1, etc.
+
+  if (file < 0 || file > 7 || rank < 0 || rank > 7) return null;
+
+  return { row: rank, col: file };
 }

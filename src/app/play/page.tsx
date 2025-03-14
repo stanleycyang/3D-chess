@@ -25,7 +25,7 @@ const AnalysisModal = ({
   const formatChessNotation = (text: string) => {
     // Replace common chess notations with explanations
     return text.replace(
-      /([KQRBN]?[a-h]?[1-8]?x?[a-h][1-8](?:=[QRBN])?[+#]?)/g,
+      /([KQRBN]?[a-h]?[1-8]?x?[a-h][1-8](?:=[QRBN])?[+#]?|O-O(?:-O)?|0-0(?:-0)?)/gi,
       (match) => {
         let explanation = match;
 
@@ -40,6 +40,10 @@ const AnalysisModal = ({
           explanation = explanation.replace("B", "Bishop ");
         if (match.startsWith("N"))
           explanation = explanation.replace("N", "Knight ");
+
+        // Add explanation for castling
+        if (match.match(/^(O-O|0-0)$/i)) explanation = "Kingside castling";
+        if (match.match(/^(O-O-O|0-0-0)$/i)) explanation = "Queenside castling";
 
         // Highlight the notation
         return `<span class="font-bold text-blue-600 dark:text-blue-400" title="${explanation}">${match}</span>`;

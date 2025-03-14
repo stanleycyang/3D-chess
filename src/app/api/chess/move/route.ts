@@ -28,6 +28,12 @@ interface HistoryMove {
   promotion?: string;
 }
 
+// Define a type for the chess piece
+interface ChessPiece {
+  type: string;
+  color: string;
+}
+
 export async function POST(request: NextRequest) {
   try {
     // Parse the request body
@@ -54,6 +60,15 @@ export async function POST(request: NextRequest) {
           .join(", ")
       : "";
 
+    // Create a visual representation of the board
+    const boardVisual = createBoardVisual(gameState.board);
+
+    // Get a list of all pieces on the board with their positions
+    const piecePositions = getPiecePositions(gameState.board);
+
+    // Get a list of all valid moves
+    const validMovesText = getValidMovesText(gameState.validMoves);
+
     let prompt = `You are a chess engine. Given this FEN: "${fen}", suggest the next move for ${turn} `;
 
     // Adjust difficulty
@@ -71,6 +86,15 @@ export async function POST(request: NextRequest) {
         prompt += "playing at an expert level (around 2000+ ELO). ";
         break;
     }
+
+    // Add the visual board representation
+    prompt += `\n\nHere is the current board state:\n${boardVisual}\n\n`;
+
+    // Add piece positions
+    prompt += `Piece positions:\n${piecePositions}\n\n`;
+
+    // Add valid moves
+    prompt += `Valid moves for ${turn}:\n${validMovesText}\n\n`;
 
     prompt +=
       "Provide the move in standard algebraic notation (e.g., e4, Nf3). ";
@@ -94,6 +118,8 @@ export async function POST(request: NextRequest) {
       "If possible, provide the move in a format that includes both the source and destination squares (e.g., 'e2-e4' or 'Ng1-f3'). ";
     prompt +=
       "IMPORTANT: Return ONLY the move notation without any additional text or explanation in the 'move' field.";
+    prompt +=
+      "IMPORTANT: Make sure your suggested move is one of the valid moves listed above.";
 
     if (includeExplanation) {
       prompt +=
@@ -124,4 +150,86 @@ export async function POST(request: NextRequest) {
       { status: 500 }
     );
   }
+}
+
+/**
+ * Create a visual representation of the chess board
+ */
+function createBoardVisual(board: Array<Array<ChessPiece | null>>): string {
+  const symbols: Record<string, Record<string, string>> = {
+    w: { p: "♙", n: "♘", b: "♗", r: "♖", q: "♕", k: "♔" },
+    b: { p: "♟", n: "♞", b: "♝", r: "♜", q: "♛", k: "♚" },
+  };
+
+  let visual = "  a b c d e f g h\n";
+
+  for (let i = 0; i < 8; i++) {
+    visual += `${8 - i} `;
+
+    for (let j = 0; j < 8; j++) {
+      const piece = board[i][j];
+      if (piece) {
+        visual += symbols[piece.color][piece.type] + " ";
+      } else {
+        visual += ". ";
+      }
+    }
+
+    visual += `${8 - i}\n`;
+  }
+
+  visual += "  a b c d e f g h";
+
+  return visual;
+}
+
+/**
+ * Get a list of all pieces on the board with their positions
+ */
+function getPiecePositions(board: Array<Array<ChessPiece | null>>): string {
+  const positions: string[] = [];
+
+  for (let i = 0; i < 8; i++) {
+    for (let j = 0; j < 8; j++) {
+      const piece = board[i][j];
+      if (piece) {
+        const square = `${String.fromCharCode(97 + j)}${8 - i}`;
+        const pieceName = getPieceName(piece.type, piece.color);
+        positions.push(`${pieceName} at ${square}`);
+      }
+    }
+  }
+
+  return positions.join("\n");
+}
+
+/**
+ * Get the full name of a piece
+ */
+function getPieceName(type: string, color: string): string {
+  const pieceNames: Record<string, string> = {
+    p: "Pawn",
+    n: "Knight",
+    b: "Bishop",
+    r: "Rook",
+    q: "Queen",
+    k: "King",
+  };
+
+  return `${color === "w" ? "White" : "Black"} ${pieceNames[type]}`;
+}
+
+/**
+ * Get a text representation of all valid moves
+ */
+function getValidMovesText(validMoves: Record<string, string[]>): string {
+  const moves: string[] = [];
+
+  for (const [from, toSquares] of Object.entries(validMoves)) {
+    if (Array.isArray(toSquares) && toSquares.length > 0) {
+      moves.push(`From ${from}: can move to ${toSquares.join(", ")}`);
+    }
+  }
+
+  return moves.join("\n");
 }
